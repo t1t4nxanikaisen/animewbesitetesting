@@ -1,9 +1,6 @@
 /* eslint-disable react/prop-types */
-import { useState } from "react";
-import {
-  TbPlayerTrackPrevFilled,
-  TbPlayerTrackNextFilled,
-} from "react-icons/tb";
+import { useState, useEffect } from "react";
+import { TbPlayerTrackPrevFilled, TbPlayerTrackNextFilled } from "react-icons/tb";
 
 const Player = ({
   episodeId,
@@ -11,20 +8,24 @@ const Player = ({
   changeEpisode,
   hasNextEp,
   hasPrevEp,
-  hindiDub = [], // Accepts an array of streams
+  hindiDub = [], // Array of Hindi stream objects or URLs
 }) => {
   const [category, setCategory] = useState("sub");
   const [server, setServer] = useState("vidWish");
-  const [currentHindiStream, setCurrentHindiStream] = useState(
-    hindiDub.length > 0 ? hindiDub[0] : null
-  );
+  const [currentHindiStreamIndex, setCurrentHindiStreamIndex] = useState(0);
+
+  // Reset category and Hindi stream when episode changes
+  useEffect(() => {
+    setCategory("sub");
+    setServer("vidWish");
+    setCurrentHindiStreamIndex(0);
+  }, [episodeId]);
 
   const changeCategory = (newType) => {
     if (newType !== category) {
       setCategory(newType);
-      // If switching to Hindi, set first stream
       if (newType === "hindi" && hindiDub.length > 0) {
-        setCurrentHindiStream(hindiDub[0]);
+        setCurrentHindiStreamIndex(0); // Reset to first Hindi stream
       }
     }
   };
@@ -33,28 +34,29 @@ const Player = ({
     if (newServer !== server) setServer(newServer);
   };
 
-  // Build iframe URL based on category + server
   const buildSrc = () => {
-    if (category === "hindi" && currentHindiStream) {
-      return currentHindiStream.url || currentHindiStream; // support object or string
+    if (category === "hindi" && hindiDub.length > 0) {
+      const stream = hindiDub[currentHindiStreamIndex];
+      return typeof stream === "string" ? stream : stream.url;
     }
 
-    // Sub / Dub -> existing servers
+    // Sub / Dub servers
     return `https://${
       server === "vidWish" ? "vidwish.live" : "megaplay.buzz"
     }/stream/s-2/${episodeId.split("ep=").pop()}/${category}`;
+  };
+
+  // Optional: switch Hindi streams if multiple available
+  const nextHindiStream = () => {
+    if (hindiDub.length <= 1) return;
+    setCurrentHindiStreamIndex((prev) => (prev + 1) % hindiDub.length);
   };
 
   return (
     <>
       {/* Video Player */}
       <div className="w-full bg-background aspect-video relative rounded-sm max-w-screen-xl overflow-hidden">
-        <iframe
-          src={buildSrc()}
-          width="100%"
-          height="100%"
-          allowFullScreen
-        ></iframe>
+        <iframe src={buildSrc()} width="100%" height="100%" allowFullScreen></iframe>
       </div>
 
       {/* Controls */}
@@ -64,9 +66,7 @@ const Player = ({
           <button
             onClick={() => changeServer("vidWish")}
             className={`${
-              server === "vidWish"
-                ? "bg-primary text-black"
-                : "bg-btnbg text-white"
+              server === "vidWish" ? "bg-primary text-black" : "bg-btnbg text-white"
             } px-2 py-1 rounded text-sm font-semibold`}
             disabled={category === "hindi"} // Hindi is only Vidnest
           >
@@ -75,9 +75,7 @@ const Player = ({
           <button
             onClick={() => changeServer("megaPlay")}
             className={`${
-              server === "megaPlay"
-                ? "bg-primary text-black"
-                : "bg-btnbg text-white"
+              server === "megaPlay" ? "bg-primary text-black" : "bg-btnbg text-white"
             } px-2 py-1 rounded text-sm font-semibold`}
             disabled={category === "hindi"}
           >
@@ -93,26 +91,31 @@ const Player = ({
                 key={type}
                 onClick={() => changeCategory(type)}
                 className={`${
-                  category === type
-                    ? "bg-primary text-black"
-                    : "bg-btnbg text-white"
+                  category === type ? "bg-primary text-black" : "bg-btnbg text-white"
                 } px-2 py-1 rounded text-sm font-semibold`}
               >
                 {type.toUpperCase()}
               </button>
             ))}
 
-            {/* Show Hindi button only if we have streams */}
             {hindiDub.length > 0 && (
               <button
                 onClick={() => changeCategory("hindi")}
                 className={`${
-                  category === "hindi"
-                    ? "bg-primary text-black"
-                    : "bg-btnbg text-white"
+                  category === "hindi" ? "bg-primary text-black" : "bg-btnbg text-white"
                 } px-2 py-1 rounded text-sm font-semibold`}
               >
                 HINDI DUB
+              </button>
+            )}
+
+            {/* If multiple Hindi streams, show next button */}
+            {category === "hindi" && hindiDub.length > 1 && (
+              <button
+                onClick={nextHindiStream}
+                className="bg-btnbg text-white px-2 py-1 rounded text-sm font-semibold"
+              >
+                Next Hindi Stream
               </button>
             )}
           </div>
@@ -142,14 +145,8 @@ const Player = ({
 
         {/* Episode Info */}
         <div className="flex flex-col">
-          <p className="text-gray-400">
-            You are watching Episode {currentEp.episodeNumber}
-          </p>
-          {currentEp.isFiller && (
-            <p className="text-red-400">
-              You are watching a filler Episode 👻
-            </p>
-          )}
+          <p className="text-gray-400">You are watching Episode {currentEp.episodeNumber}</p>
+          {currentEp.isFiller && <p className="text-red-400">You are watching a filler Episode 👻</p>}
         </div>
       </div>
     </>
