@@ -10,77 +10,43 @@ import { HiMiniViewColumns } from "react-icons/hi2";
 import { Helmet } from "react-helmet";
 
 /**
- * Try a set of endpoints and normalize episode list into:
- *  [
- *    { id, episodeNumber, title, isFiller, subStreams, dubStreams, hindiStreams }
- *  ]
+ * Try and normalize possible shapes returned by API endpoints.
  */
-async function fetchEpisodesAllSources(animeId) {
-  const normalized = (arr) =>
-    arr.map((ep) => {
-      const epNum =
-        ep?.episodeNumber ??
-        ep?.episode ??
-        (typeof ep?.episodeNo === "number" ? ep.episodeNo : null) ??
-        (typeof ep?.id === "string" && ep.id.includes("ep=") ? Number(ep.id.split("ep=").pop()) : null);
-
-      return {
-        id: ep.id ?? `${animeId}?ep=${epNum ?? ""}`,
-        episodeNumber: epNum ?? null,
-        title: ep.title ?? ep.name ?? ep.nameWithEpisode ?? `Episode ${epNum ?? ""}`,
-        isFiller: Boolean(ep.isFiller || ep.filler),
-        subStreams: ep.subStreams ?? ep.sources?.sub ?? ep.sub ?? ep.streams?.sub ?? [],
-        dubStreams: ep.dubStreams ?? ep.sources?.dub ?? ep.dub ?? ep.streams?.dub ?? [],
-        hindiStreams: ep.hindiStreams ?? ep.hindi ?? ep.hindi_dub ?? ep.streams?.hindi ?? [],
-      };
-    });
-
-  const tryEndpoints = [];
-
-  // 1) try local backend (relative). If you use VITE_API_BASE set it in env and it will be applied below.
-  const viteBase = import.meta.env.VITE_API_BASE || "";
-  const local = `${viteBase.replace(/\/$/, "")}/api/v1/episodes/${encodeURIComponent(animeId)}`;
-  tryEndpoints.push({ url: local, kind: "local" });
-
-  // 2) Hindi API (explicit)
-  tryEndpoints.push({ url: `https://hindiapi.onrender.com/api/v1/episodes/${encodeURIComponent(animeId)}`, kind: "hindiapi" });
-
-  // 3) Fallback: Consumet / gogoanime info
-  tryEndpoints.push({ url: `https://api.consumet.org/anime/gogoanime/info/${encodeURIComponent(animeId)}`, kind: "consumet" });
-
-  for (const e of tryEndpoints) {
-    try {
-      const res = await axios.get(e.url, { timeout: 8000 });
-      const payload = res?.data ?? res;
-
-      // normalize possible shapes
-      let arr =
-        Array.isArray(payload)
-          ? payload
-          : Array.isArray(payload?.episodes)
-          ? payload.episodes
-          : Array.isArray(payload?.data)
-          ? payload.data
-          : Array.isArray(payload?.data?.data)
-          ? payload.data.data
-          : null;
-
-      // consumet sometimes gives payload.episodes with objects { number, title }
-      if (!arr && e.kind === "consumet" && Array.isArray(payload?.episodes)) {
-        arr = payload.episodes.map((it) => ({ episode: it.number ?? it.episode, title: it.title }));
-      }
-
-      if (!arr || !Array.isArray(arr) || arr.length === 0) continue;
-
-      return normalized(arr);
-    } catch (err) {
-      // try next source
-      // console.warn("fetchEpisodesAllSources failed for", e.url, err.message);
-    }
+function normalizeEpisodes(payload) {
+  if (!payload) return [];
+  const candidates = [
+    payload,
+    payload?.data,
+    payload?.data?.data,
+    payload?.episodes,
+    payload?.data?.episodes,
+    payload?.result,
+  ];
+  for (const c of candidates) {
+    if (Array.isArray(c)) return c;
   }
-
   return [];
 }
+
+const tryEndpointsForEpisodes = async (animeId) => {
+  const tryList = [];
+  const base = import.meta.env.VITE_API_BASE || "";
+  const local = `${base.replace(/\/$/, "")}/api/v1/episodes/${encodeURIComponent(animeId)}`;
+  tryList.push(local);
+  tryList.push(`https://hindiapi.onrender.com/api/v1/episodes/${encodeURIComponent(animeId)}`);
+  tryList.push(`https://api.consumet.org/anime/gogoanime/info/${encodeURIComponent(animeId)}`);
+
+  for (const url of tryList) {
+    try {
+      const res = await axios.get(url, { timeout: 8000 });
+      const normalized = normalizeEpisodes(res.data);
+      if (normalized && normalized.length) return normalized;
+    } catch (err) {
+      // continue
+    }
+  }
+  return [];
+};
 
 const WatchPage = () => {
   const { id } = useParams();
@@ -96,36 +62,33 @@ const WatchPage = () => {
     let mounted = true;
     setLoading(true);
     setLoadError(null);
-
     (async () => {
       try {
-        const eps = await fetchEpisodesAllSources(id);
+        const eps = await tryEndpointsForEpisodes(id);
         if (!mounted) return;
         setEpisodes(eps);
       } catch (err) {
         if (!mounted) return;
-        setLoadError(err.message || "Failed to load episodes");
+        setLoadError(err.message || "Failed to fetch episodes");
         setEpisodes([]);
       } finally {
         if (!mounted) return;
         setLoading(false);
       }
     })();
-
     return () => {
       mounted = false;
     };
   }, [id]);
 
-  // auto-select first episode when we have list
   useEffect(() => {
     if (!epParam && Array.isArray(episodes) && episodes.length > 0) {
       const first = episodes[0];
-      const epNum = first?.id?.includes("ep=") ? first.id.split("ep=").pop() : String(first?.episodeNumber ?? 1);
-      if (epNum) {
+      const firstNum = first?.id?.includes("ep=") ? first.id.split("ep=").pop() : String(first?.episodeNumber ?? 1);
+      if (firstNum) {
         setSearchParams((prev) => {
           const p = new URLSearchParams(prev);
-          p.set("ep", epNum);
+          p.set("ep", firstNum);
           return p;
         });
       }
@@ -133,17 +96,9 @@ const WatchPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [episodes]);
 
-  if (loadError) {
-    return (
-      <div className="bg-backGround pt-14 max-w-screen-xl mx-auto py-2 md:px-2">
-        <div className="p-6 text-center text-red-400">Error loading episodes: {loadError}</div>
-      </div>
-    );
-  }
+  if (loadError) return <PageNotFound />;
 
-  if (loading || episodes === null) {
-    return <Loader className="h-screen" />;
-  }
+  if (loading || episodes === null) return <Loader className="h-screen" />;
 
   if (!Array.isArray(episodes) || episodes.length === 0) {
     return (
@@ -156,7 +111,6 @@ const WatchPage = () => {
     );
   }
 
-  // find current episode
   const currentEp = useMemo(() => {
     if (!epParam) return episodes[0];
     const found = episodes.find((e) => {
@@ -170,9 +124,9 @@ const WatchPage = () => {
   const hasNextEp = currentIndex > -1 && Boolean(episodes[currentIndex + 1]);
   const hasPrevEp = currentIndex > -1 && Boolean(episodes[currentIndex - 1]);
 
-  const changeEpisode = (direction) => {
+  const changeEpisode = (action) => {
     if (currentIndex < 0) return;
-    const target = direction === "next" ? episodes[currentIndex + 1] : episodes[currentIndex - 1];
+    const target = action === "next" ? episodes[currentIndex + 1] : episodes[currentIndex - 1];
     if (!target) return;
     const nextNum = target?.id?.includes("ep=") ? target.id.split("ep=").pop() : String(target?.episodeNumber ?? "");
     setSearchParams((prev) => {
@@ -188,7 +142,7 @@ const WatchPage = () => {
   return (
     <div className="bg-backGround pt-14 max-w-screen-xl mx-auto py-2 md:px-2">
       <Helmet>
-        <title>Watch {id?.split("-")?.slice(0, 2)?.join(" ")} Online | Watanuki</title>
+        <title>Watch {id?.split("-")?.slice(0, 2)?.join(" ")} Online</title>
       </Helmet>
 
       <div className="flex flex-col gap-2">
@@ -225,11 +179,5 @@ const WatchPage = () => {
         </div>
 
         <ul className={`episodes max-h-[50vh] py-4 px-2 overflow-scroll bg-lightbg grid gap-1 md:gap-2 ${layout === "row" ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3" : "grid-cols-5 md:grid-cols-10"}`}>
-          {episodes.map((episode) => <Episodes key={episode.id ?? `${id}-${episode.episodeNumber}`} episode={episode} currentEp={currentEp} layout={layout} />)}
-        </ul>
-      </div>
-    </div>
-  );
-};
-
-export default WatchPage;
+          {episodes.map((episode) => (
+            <Episodes key={epi
