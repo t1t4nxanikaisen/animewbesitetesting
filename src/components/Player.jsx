@@ -1,86 +1,136 @@
 /* eslint-disable react/prop-types */
 import { useEffect, useState } from "react";
 import { TbPlayerTrackPrevFilled, TbPlayerTrackNextFilled } from "react-icons/tb";
+import axios from "axios";
 
 const Player = ({ episodeId, currentEp, changeEpisode, hasNextEp, hasPrevEp, hindiDub = [] }) => {
-  const [category, setCategory] = useState("sub");
-  const [server, setServer] = useState("vidWish");
+  const [category, setCategory] = useState("sub"); // sub | dub | hindi
+  const [server, setServer] = useState("vidWish"); // vidWish | megaPlay
   const [hindiIndex, setHindiIndex] = useState(0);
+  const [serversList, setServersList] = useState({ sub: [], dub: [], hindi: [] });
+  const [selectedServer, setSelectedServer] = useState(null);
 
   useEffect(() => {
     setCategory("sub");
     setServer("vidWish");
     setHindiIndex(0);
+    setServersList({ sub: [], dub: [], hindi: [] });
+    setSelectedServer(null);
+
+    // fetch servers for this episode (combined)
+    let mounted = true;
+    (async () => {
+      try {
+        const res = await axios.get("/api/v1/stream", { params: { id: episodeId, type: "all" } });
+        const servers = res?.data?.data?.servers ?? {};
+        if (!mounted) return;
+        setServersList({
+          sub: servers.sub ?? [],
+          dub: servers.dub ?? [],
+          hindi: servers.hindi ?? [],
+        });
+      } catch (err) {
+        // ignore, fallback to what we have
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
   }, [episodeId]);
 
   const changeCategory = (newType) => {
     if (newType !== category) {
       setCategory(newType);
-      if (newType === "hindi") setHindiIndex(0);
+      if (newType === "hindi") {
+        setHindiIndex(0);
+        // set selected server to vidnest / first hindi server if present
+        const h = serversList.hindi;
+        if (h && h.length) setSelectedServer(h[0]);
+      } else {
+        setSelectedServer(null);
+      }
     }
   };
 
-  const changeServer = (newServer) => {
+  const changeServerLocal = (newServer) => {
     if (newServer !== server) setServer(newServer);
   };
 
   const getHindiUrl = () => {
-    if (!hindiDub || !hindiDub.length) return null;
-    const entry = hindiDub[hindiIndex] ?? hindiDub[0];
-    return typeof entry === "string" ? entry : entry?.url ?? null;
+    if (!serversList.hindi || serversList.hindi.length === 0) {
+      // fallback to passed prop
+      const entry = hindiDub && hindiDub.length ? hindiDub[hindiIndex] ?? hindiDub[0] : null;
+      if (!entry) return null;
+      return typeof entry === "string" ? entry : entry.url;
+    }
+    const entry = serversList.hindi[hindiIndex] ?? serversList.hindi[0];
+    return typeof entry === "string" ? entry : entry?.url;
   };
 
-  const buildSrc = () => {
-    if (category === "hindi") {
-      const url = getHindiUrl();
-      if (url) return url;
-      // fallback to vidwish with "hindi" category (may not exist)
-      const epnum = episodeId.includes("ep=") ? episodeId.split("ep=").pop() : currentEp?.episodeNumber;
-      return `https://vidwish.live/stream/s-2/${epnum}/hindi`;
+  const getSubDubUrl = () => {
+    // if user selected a specific server via selectedServer and server is known, call /stream to extract playable link
+    if (selectedServer && category !== "hindi") {
+      // selectedServer likely contains { name, url, ... } — call backend to extract playable
+      return `/api/v1/stream?id=${encodeURIComponent(episodeId)}&type=${encodeURIComponent(category)}&server=${encodeURIComponent(selectedServer.name || selectedServer.server || selectedServer.name)}`;
     }
-
     const epnum = episodeId.includes("ep=") ? episodeId.split("ep=").pop() : currentEp?.episodeNumber;
     const base = server === "vidWish" ? "vidwish.live" : "megaplay.buzz";
     return `https://${base}/stream/s-2/${epnum}/${category}`;
   };
 
-  const nextHindiStream = () => {
-    if (!hindiDub || hindiDub.length <= 1) return;
-    setHindiIndex((i) => (i + 1) % hindiDub.length);
+  const buildSrc = () => {
+    if (category === "hindi") {
+      const url = getHindiUrl();
+      return url;
+    }
+    // If selectedServer points to an external specific server with direct url, use it
+    if (selectedServer && selectedServer.url) return selectedServer.url;
+    // fallback to constructed url
+    return getSubDubUrl();
+  };
+
+  const handleSelectServer = (srv) => {
+    setSelectedServer(srv);
+    // if we selected a server object that includes a url field and category isn't hindi, set category accordingly
+  };
+
+  const nextHindi = () => {
+    if (!serversList.hindi || serversList.hindi.length <= 1) return;
+    setHindiIndex((i) => (i + 1) % serversList.hindi.length);
   };
 
   return (
     <>
       <div className="w-full bg-background aspect-video relative rounded-sm max-w-screen-xl overflow-hidden">
-        <iframe key={buildSrc()} src={buildSrc()} width="100%" height="100%" allowFullScreen></iframe>
+        <iframe src={buildSrc()} width="100%" height="100%" allowFullScreen title="player" />
       </div>
 
       <div className="category flex flex-wrap flex-col sm:flex-row items-center justify-center sm:justify-between px-2 md:px-20 gap-3 bg-lightbg py-2">
         <div className="servers flex gap-4">
-          <button onClick={() => changeServer("vidWish")} className={`${server === "vidWish" ? "bg-primary text-black" : "bg-btnbg text-white"} px-2 py-1 rounded text-sm font-semibold`} disabled={category === "hindi"}>
+          <button onClick={() => changeServerLocal("vidWish")} className={`${server === "vidWish" ? "bg-primary text-black" : "bg-btnbg text-white"} px-2 py-1 rounded text-sm font-semibold`} disabled={category === "hindi"}>
             vidwish
           </button>
-          <button onClick={() => changeServer("megaPlay")} className={`${server === "megaPlay" ? "bg-primary text-black" : "bg-btnbg text-white"} px-2 py-1 rounded text-sm font-semibold`} disabled={category === "hindi"}>
+          <button onClick={() => changeServerLocal("megaPlay")} className={`${server === "megaPlay" ? "bg-primary text-black" : "bg-btnbg text-white"} px-2 py-1 rounded text-sm font-semibold`} disabled={category === "hindi"}>
             megaplay
           </button>
         </div>
 
         <div className="flex gap-5">
           <div className="sound flex gap-3">
-            {["sub", "dub"].map((type) => (
-              <button key={type} onClick={() => changeCategory(type)} className={`${category === type ? "bg-primary text-black" : "bg-btnbg text-white"} px-2 py-1 rounded text-sm font-semibold`}>
-                {type.toUpperCase()}
+            {["sub", "dub"].map((t) => (
+              <button key={t} onClick={() => changeCategory(t)} className={`${category === t ? "bg-primary text-black" : "bg-btnbg text-white"} px-2 py-1 rounded text-sm font-semibold`}>
+                {t.toUpperCase()}
               </button>
             ))}
 
-            {hindiDub && hindiDub.length > 0 && (
+            {((hindiDub && hindiDub.length) || (serversList.hindi && serversList.hindi.length)) > 0 && (
               <>
                 <button onClick={() => changeCategory("hindi")} className={`${category === "hindi" ? "bg-primary text-black" : "bg-btnbg text-white"} px-2 py-1 rounded text-sm font-semibold`}>
                   HINDI DUB
                 </button>
-
-                {category === "hindi" && hindiDub.length > 1 && (
-                  <button onClick={nextHindiStream} className="bg-btnbg text-white px-2 py-1 rounded text-sm font-semibold">
+                {category === "hindi" && ((serversList.hindi && serversList.hindi.length) || (hindiDub && hindiDub.length) > 1) && (
+                  <button onClick={nextHindi} className="bg-btnbg text-white px-2 py-1 rounded text-sm font-semibold">
                     Next Hindi
                   </button>
                 )}
@@ -106,6 +156,25 @@ const Player = ({ episodeId, currentEp, changeEpisode, hasNextEp, hasPrevEp, hin
           <p className="text-gray-400">You are watching Episode {currentEp?.episodeNumber ?? ""}</p>
           {currentEp?.isFiller && <p className="text-red-400">You are watching a filler Episode 👻</p>}
         </div>
+      </div>
+
+      {/* servers list UI: show per-server buttons so user can pick exact server */}
+      <div className="py-2 px-2 bg-lightbg flex gap-2 flex-wrap">
+        {serversList.sub?.map((s, i) => (
+          <button key={`sub-${i}`} className="px-2 py-1 bg-btnbg text-white rounded text-sm" onClick={() => { setCategory("sub"); handleSelectServer(s); }}>
+            {s.name ?? s.server ?? `sub-${i + 1}`}
+          </button>
+        ))}
+        {serversList.dub?.map((s, i) => (
+          <button key={`dub-${i}`} className="px-2 py-1 bg-btnbg text-white rounded text-sm" onClick={() => { setCategory("dub"); handleSelectServer(s); }}>
+            {s.name ?? s.server ?? `dub-${i + 1}`}
+          </button>
+        ))}
+        {serversList.hindi && serversList.hindi.length > 0 && (
+          <button key="hindi-server" className="px-2 py-1 bg-yellow-400 text-black rounded text-sm" onClick={() => { setCategory("hindi"); setHindiIndex(0); }}>
+            Play Hindi ({serversList.hindi.length})
+          </button>
+        )}
       </div>
     </>
   );
