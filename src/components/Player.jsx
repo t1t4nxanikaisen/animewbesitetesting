@@ -11,14 +11,21 @@ const Player = ({
   changeEpisode,
   hasNextEp,
   hasPrevEp,
-  hindiDub, 
+  hindiDub = [], // Accepts an array of streams
 }) => {
   const [category, setCategory] = useState("sub");
   const [server, setServer] = useState("vidWish");
+  const [currentHindiStream, setCurrentHindiStream] = useState(
+    hindiDub.length > 0 ? hindiDub[0] : null
+  );
 
   const changeCategory = (newType) => {
     if (newType !== category) {
       setCategory(newType);
+      // If switching to Hindi, set first stream
+      if (newType === "hindi" && hindiDub.length > 0) {
+        setCurrentHindiStream(hindiDub[0]);
+      }
     }
   };
 
@@ -28,12 +35,11 @@ const Player = ({
 
   // Build iframe URL based on category + server
   const buildSrc = () => {
-    if (category === "hindi" && hindiDub) {
-      // Hindi dubs always come from Vidnest
-      return hindiDub;
+    if (category === "hindi" && currentHindiStream) {
+      return currentHindiStream.url || currentHindiStream; // support object or string
     }
 
-    // Sub / Dub -> your existing servers
+    // Sub / Dub -> existing servers
     return `https://${
       server === "vidWish" ? "vidwish.live" : "megaplay.buzz"
     }/stream/s-2/${episodeId.split("ep=").pop()}/${category}`;
@@ -41,6 +47,7 @@ const Player = ({
 
   return (
     <>
+      {/* Video Player */}
       <div className="w-full bg-background aspect-video relative rounded-sm max-w-screen-xl overflow-hidden">
         <iframe
           src={buildSrc()}
@@ -50,6 +57,7 @@ const Player = ({
         ></iframe>
       </div>
 
+      {/* Controls */}
       <div className="category flex flex-wrap flex-col sm:flex-row items-center justify-center sm:justify-between px-2 md:px-20 gap-3 bg-lightbg py-2">
         {/* Server Switch */}
         <div className="servers flex gap-4">
@@ -60,7 +68,7 @@ const Player = ({
                 ? "bg-primary text-black"
                 : "bg-btnbg text-white"
             } px-2 py-1 rounded text-sm font-semibold`}
-            disabled={category === "hindi"} // Hindi is only Vidnest, so disable
+            disabled={category === "hindi"} // Hindi is only Vidnest
           >
             vidwish
           </button>
@@ -71,7 +79,7 @@ const Player = ({
                 ? "bg-primary text-black"
                 : "bg-btnbg text-white"
             } px-2 py-1 rounded text-sm font-semibold`}
-            disabled={category === "hindi"} // Hindi is only Vidnest
+            disabled={category === "hindi"}
           >
             megaplay
           </button>
@@ -94,8 +102,8 @@ const Player = ({
               </button>
             ))}
 
-            {/* Show Hindi button only if we got a link */}
-            {hindiDub && (
+            {/* Show Hindi button only if we have streams */}
+            {hindiDub.length > 0 && (
               <button
                 onClick={() => changeCategory("hindi")}
                 className={`${
@@ -104,7 +112,7 @@ const Player = ({
                     : "bg-btnbg text-white"
                 } px-2 py-1 rounded text-sm font-semibold`}
               >
-                HINDI
+                HINDI DUB
               </button>
             )}
           </div>
@@ -135,10 +143,12 @@ const Player = ({
         {/* Episode Info */}
         <div className="flex flex-col">
           <p className="text-gray-400">
-            you are watching Episode {currentEp.episodeNumber}
+            You are watching Episode {currentEp.episodeNumber}
           </p>
           {currentEp.isFiller && (
-            <p className="text-red-400">you are watching a filler Episode 👻</p>
+            <p className="text-red-400">
+              You are watching a filler Episode 👻
+            </p>
           )}
         </div>
       </div>
