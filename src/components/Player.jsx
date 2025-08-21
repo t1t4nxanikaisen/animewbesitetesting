@@ -34,7 +34,7 @@ const Player = ({ episodeId, currentEp, changeEpisode, hasNextEp, hasPrevEp, hin
     if (category === "hindi") {
       const url = getHindiUrl();
       if (url) return url;
-      // fallback to vidwish with hindi suffix (rare)
+      // fallback to vidwish with "hindi" category (may not exist)
       const epnum = episodeId.includes("ep=") ? episodeId.split("ep=").pop() : currentEp?.episodeNumber;
       return `https://vidwish.live/stream/s-2/${epnum}/hindi`;
     }
