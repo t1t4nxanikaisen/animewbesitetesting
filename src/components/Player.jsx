@@ -2,19 +2,11 @@
 import { useEffect, useState } from "react";
 import { TbPlayerTrackPrevFilled, TbPlayerTrackNextFilled } from "react-icons/tb";
 
-const Player = ({
-  episodeId,
-  currentEp,
-  changeEpisode,
-  hasNextEp,
-  hasPrevEp,
-  hindiDub = [], // array of {url:String} or String
-}) => {
+const Player = ({ episodeId, currentEp, changeEpisode, hasNextEp, hasPrevEp, hindiDub = [] }) => {
   const [category, setCategory] = useState("sub");
   const [server, setServer] = useState("vidWish");
   const [hindiIndex, setHindiIndex] = useState(0);
 
-  // Reset state when episode changes
   useEffect(() => {
     setCategory("sub");
     setServer("vidWish");
@@ -33,82 +25,62 @@ const Player = ({
   };
 
   const getHindiUrl = () => {
-    if (!hindiDub.length) return null;
+    if (!hindiDub || !hindiDub.length) return null;
     const entry = hindiDub[hindiIndex] ?? hindiDub[0];
-    return typeof entry === "string" ? entry : entry?.url;
+    return typeof entry === "string" ? entry : entry?.url ?? null;
   };
 
   const buildSrc = () => {
     if (category === "hindi") {
       const url = getHindiUrl();
       if (url) return url;
+      // fallback to vidwish with hindi suffix (rare)
+      const epnum = episodeId.includes("ep=") ? episodeId.split("ep=").pop() : currentEp?.episodeNumber;
+      return `https://vidwish.live/stream/s-2/${epnum}/hindi`;
     }
-    // SUB/DUB use original servers
-    const epNum = episodeId.includes("ep=")
-      ? episodeId.split("ep=").pop()
-      : String(currentEp?.episodeNumber ?? 1);
-    return `https://${server === "vidWish" ? "vidwish.live" : "megaplay.buzz"}/stream/s-2/${epNum}/${category}`;
+
+    const epnum = episodeId.includes("ep=") ? episodeId.split("ep=").pop() : currentEp?.episodeNumber;
+    const base = server === "vidWish" ? "vidwish.live" : "megaplay.buzz";
+    return `https://${base}/stream/s-2/${epnum}/${category}`;
   };
 
   const nextHindiStream = () => {
-    if (hindiDub.length <= 1) return;
+    if (!hindiDub || hindiDub.length <= 1) return;
     setHindiIndex((i) => (i + 1) % hindiDub.length);
   };
 
   return (
     <>
-      {/* Video */}
       <div className="w-full bg-background aspect-video relative rounded-sm max-w-screen-xl overflow-hidden">
-        <iframe src={buildSrc()} width="100%" height="100%" allowFullScreen></iframe>
+        <iframe key={buildSrc()} src={buildSrc()} width="100%" height="100%" allowFullScreen></iframe>
       </div>
 
-      {/* Controls */}
       <div className="category flex flex-wrap flex-col sm:flex-row items-center justify-center sm:justify-between px-2 md:px-20 gap-3 bg-lightbg py-2">
-        {/* Servers */}
         <div className="servers flex gap-4">
-          <button
-            onClick={() => changeServer("vidWish")}
-            className={`${server === "vidWish" ? "bg-primary text-black" : "bg-btnbg text-white"} px-2 py-1 rounded text-sm font-semibold`}
-            disabled={category === "hindi"}
-          >
+          <button onClick={() => changeServer("vidWish")} className={`${server === "vidWish" ? "bg-primary text-black" : "bg-btnbg text-white"} px-2 py-1 rounded text-sm font-semibold`} disabled={category === "hindi"}>
             vidwish
           </button>
-          <button
-            onClick={() => changeServer("megaPlay")}
-            className={`${server === "megaPlay" ? "bg-primary text-black" : "bg-btnbg text-white"} px-2 py-1 rounded text-sm font-semibold`}
-            disabled={category === "hindi"}
-          >
+          <button onClick={() => changeServer("megaPlay")} className={`${server === "megaPlay" ? "bg-primary text-black" : "bg-btnbg text-white"} px-2 py-1 rounded text-sm font-semibold`} disabled={category === "hindi"}>
             megaplay
           </button>
         </div>
 
-        {/* Categories */}
         <div className="flex gap-5">
           <div className="sound flex gap-3">
             {["sub", "dub"].map((type) => (
-              <button
-                key={type}
-                onClick={() => changeCategory(type)}
-                className={`${category === type ? "bg-primary text-black" : "bg-btnbg text-white"} px-2 py-1 rounded text-sm font-semibold`}
-              >
+              <button key={type} onClick={() => changeCategory(type)} className={`${category === type ? "bg-primary text-black" : "bg-btnbg text-white"} px-2 py-1 rounded text-sm font-semibold`}>
                 {type.toUpperCase()}
               </button>
             ))}
 
-            {hindiDub.length > 0 && (
+            {hindiDub && hindiDub.length > 0 && (
               <>
-                <button
-                  onClick={() => changeCategory("hindi")}
-                  className={`${category === "hindi" ? "bg-primary text-black" : "bg-btnbg text-white"} px-2 py-1 rounded text-sm font-semibold`}
-                >
+                <button onClick={() => changeCategory("hindi")} className={`${category === "hindi" ? "bg-primary text-black" : "bg-btnbg text-white"} px-2 py-1 rounded text-sm font-semibold`}>
                   HINDI DUB
                 </button>
+
                 {category === "hindi" && hindiDub.length > 1 && (
-                  <button
-                    onClick={nextHindiStream}
-                    className="bg-btnbg text-white px-2 py-1 rounded text-sm font-semibold"
-                    title="Switch Hindi source"
-                  >
+                  <button onClick={nextHindiStream} className="bg-btnbg text-white px-2 py-1 rounded text-sm font-semibold">
                     Next Hindi
                   </button>
                 )}
@@ -116,35 +88,23 @@ const Player = ({
             )}
           </div>
 
-          {/* Prev/Next */}
           <div className="btns flex gap-4">
             {hasPrevEp && (
-              <button
-                title="prev"
-                className="prev bg-primary px-2 py-1 rounded-md text-black"
-                onClick={() => changeEpisode("prev")}
-              >
+              <button title="prev" className="prev bg-primary px-2 py-1 rounded-md text-black" onClick={() => changeEpisode("prev")}>
                 <TbPlayerTrackPrevFilled />
               </button>
             )}
             {hasNextEp && (
-              <button
-                title="next"
-                className="next bg-primary px-2 py-1 rounded-md text-black"
-                onClick={() => changeEpisode("next")}
-              >
+              <button title="next" className="next bg-primary px-2 py-1 rounded-md text-black" onClick={() => changeEpisode("next")}>
                 <TbPlayerTrackNextFilled />
               </button>
             )}
           </div>
         </div>
 
-        {/* Info */}
         <div className="flex flex-col">
           <p className="text-gray-400">You are watching Episode {currentEp?.episodeNumber ?? ""}</p>
-          {currentEp?.isFiller && (
-            <p className="text-red-400">You are watching a filler Episode 👻</p>
-          )}
+          {currentEp?.isFiller && <p className="text-red-400">You are watching a filler Episode 👻</p>}
         </div>
       </div>
     </>
