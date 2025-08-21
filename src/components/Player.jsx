@@ -1,5 +1,5 @@
 /* eslint-disable react/prop-types */
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import {
   TbPlayerTrackPrevFilled,
   TbPlayerTrackNextFilled,
@@ -11,6 +11,7 @@ const Player = ({
   changeEpisode,
   hasNextEp,
   hasPrevEp,
+  hindiDub, 
 }) => {
   const [category, setCategory] = useState("sub");
   const [server, setServer] = useState("vidWish");
@@ -20,31 +21,46 @@ const Player = ({
       setCategory(newType);
     }
   };
-  function changeServer(newServer) {
+
+  const changeServer = (newServer) => {
     if (newServer !== server) setServer(newServer);
-  }
+  };
+
+  // Build iframe URL based on category + server
+  const buildSrc = () => {
+    if (category === "hindi" && hindiDub) {
+      // Hindi dubs always come from Vidnest
+      return hindiDub;
+    }
+
+    // Sub / Dub -> your existing servers
+    return `https://${
+      server === "vidWish" ? "vidwish.live" : "megaplay.buzz"
+    }/stream/s-2/${episodeId.split("ep=").pop()}/${category}`;
+  };
 
   return (
     <>
-      <div className="w-full bg-background aspect-video relative rounded-sm  max-w-screen-xl overflow-hidden">
+      <div className="w-full bg-background aspect-video relative rounded-sm max-w-screen-xl overflow-hidden">
         <iframe
-          src={`https://${
-            server === "vidWish" ? "vidwish.live" : "megaplay.buzz"
-          }/stream/s-2/${episodeId.split("ep=").pop()}/${category}`}
+          src={buildSrc()}
           width="100%"
           height="100%"
           allowFullScreen
         ></iframe>
       </div>
-      <div className="category flex flex-wrap flex-col sm:flex-row items-center justify-center  sm:justify-between px-2 md:px-20 gap-3 bg-lightbg py-2">
+
+      <div className="category flex flex-wrap flex-col sm:flex-row items-center justify-center sm:justify-between px-2 md:px-20 gap-3 bg-lightbg py-2">
+        {/* Server Switch */}
         <div className="servers flex gap-4">
           <button
             onClick={() => changeServer("vidWish")}
             className={`${
               server === "vidWish"
                 ? "bg-primary text-black"
-                : "bg-btnbg  text-white"
+                : "bg-btnbg text-white"
             } px-2 py-1 rounded text-sm font-semibold`}
+            disabled={category === "hindi"} // Hindi is only Vidnest, so disable
           >
             vidwish
           </button>
@@ -53,12 +69,15 @@ const Player = ({
             className={`${
               server === "megaPlay"
                 ? "bg-primary text-black"
-                : "bg-btnbg  text-white"
+                : "bg-btnbg text-white"
             } px-2 py-1 rounded text-sm font-semibold`}
+            disabled={category === "hindi"} // Hindi is only Vidnest
           >
             megaplay
           </button>
         </div>
+
+        {/* Category Switch */}
         <div className="flex gap-5">
           <div className="sound flex gap-3">
             {["sub", "dub"].map((type) => (
@@ -68,13 +87,29 @@ const Player = ({
                 className={`${
                   category === type
                     ? "bg-primary text-black"
-                    : "bg-btnbg  text-white"
+                    : "bg-btnbg text-white"
                 } px-2 py-1 rounded text-sm font-semibold`}
               >
                 {type.toUpperCase()}
               </button>
             ))}
+
+            {/* Show Hindi button only if we got a link */}
+            {hindiDub && (
+              <button
+                onClick={() => changeCategory("hindi")}
+                className={`${
+                  category === "hindi"
+                    ? "bg-primary text-black"
+                    : "bg-btnbg text-white"
+                } px-2 py-1 rounded text-sm font-semibold`}
+              >
+                HINDI
+              </button>
+            )}
           </div>
+
+          {/* Prev / Next Episode Buttons */}
           <div className="btns flex gap-4">
             {hasPrevEp && (
               <button
@@ -96,12 +131,14 @@ const Player = ({
             )}
           </div>
         </div>
+
+        {/* Episode Info */}
         <div className="flex flex-col">
           <p className="text-gray-400">
             you are watching Episode {currentEp.episodeNumber}
           </p>
           {currentEp.isFiller && (
-            <p className="text-red-400">your are watching filler Episode 👻</p>
+            <p className="text-red-400">you are watching a filler Episode 👻</p>
           )}
         </div>
       </div>
