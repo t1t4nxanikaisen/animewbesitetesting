@@ -9,6 +9,24 @@ import { MdTableRows } from "react-icons/md";
 import { HiMiniViewColumns } from "react-icons/hi2";
 import { Helmet } from "react-helmet";
 
+function normalizeEpisodes(payload) {
+  // Try a bunch of common shapes your API might return
+  const candidates = [
+    payload,
+    payload?.data,
+    payload?.data?.data,
+    payload?.episodes,
+    payload?.data?.episodes,
+    payload?.result,
+    payload?.payload,
+  ].filter(Boolean);
+
+  for (const c of candidates) {
+    if (Array.isArray(c)) return c;
+  }
+  return [];
+}
+
 const WatchPage = () => {
   const { id } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -16,42 +34,47 @@ const WatchPage = () => {
 
   const epParam = searchParams.get("ep");
 
-  // fetch episodes from API
-  const { data, isError } = useApi(`/episodes/${id}`);
-  const episodes = data?.data || data || []; // support either {data:[]} or [] shape
+  // Fetch episodes from API
+  const { data, isError, isLoading } = useApi(`/episodes/${id}`);
+
+  // Normalize to always get an array
+  const episodes = useMemo(() => normalizeEpisodes(data), [data]);
 
   const updateParams = (newEp) => {
+    if (!newEp) return;
     setSearchParams((prev) => {
       const p = new URLSearchParams(prev);
-      p.set("ep", newEp);
+      p.set("ep", String(newEp));
       return p;
     });
   };
 
-  // auto-select first episode when ready
+  // Auto-redirect to the first episode if no `ep` yet
   useEffect(() => {
     if (!epParam && Array.isArray(episodes) && episodes.length > 0) {
-      const firstEpNum =
-        episodes[0]?.id?.includes("ep=")
-          ? episodes[0].id.split("ep=").pop()
-          : String(episodes[0]?.episodeNumber ?? 1);
-      if (firstEpNum) updateParams(firstEpNum);
+      const firstEp = episodes[0];
+      const firstEpNum = firstEp?.id?.includes("ep=")
+        ? firstEp.id.split("ep=").pop()
+        : String(firstEp?.episodeNumber ?? 1);
+      updateParams(firstEpNum);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [epParam, episodes]);
 
   if (isError) return <PageNotFound />;
 
-  // still loading
-  if (!Array.isArray(episodes)) {
+  // Show loader while initial fetch is in flight
+  if (isLoading || !Array.isArray(episodes)) {
     return <Loader className="h-screen" />;
   }
 
-  // no episodes
-  if (episodes.length === 0) {
+  // If normalize didn’t find anything, show message
+  const hasEpisodes = Array.isArray(episodes) && episodes.length > 0;
+  if (!hasEpisodes) {
     return (
       <div className="bg-backGround pt-14 max-w-screen-xl mx-auto py-2 md:px-2">
         <Helmet>
-          <title>Watch | No episodes found</title>
+          <title>Watch | No episodes</title>
         </Helmet>
         <div className="p-6 text-center text-gray-300">
           No episodes found for this anime.
@@ -60,68 +83,60 @@ const WatchPage = () => {
     );
   }
 
-  // find current episode by `?ep` or fallback to first
+  // Find current episode safely
   const currentEp = useMemo(() => {
-    if (!episodes?.length) return null;
-
-    // preferred: match by ep param against "id?...ep=NNN"
-    if (epParam) {
-      const found = episodes.find((e) => {
-        if (e?.id?.includes("ep=")) {
-          return e.id.split("ep=").pop() === epParam;
-        }
-        // fallback: compare numbers
-        return String(e?.episodeNumber) === epParam;
-      });
-      if (found) return found;
-    }
-
-    return episodes[0];
+    if (!epParam) return episodes[0];
+    const byQuery = episodes.find((e) => {
+      if (e?.id?.includes("ep=")) {
+        return e.id.split("ep=").pop() === epParam;
+      }
+      return String(e?.episodeNumber) === String(epParam);
+    });
+    return byQuery || episodes[0];
   }, [episodes, epParam]);
 
-  // compute flags for next/prev safely
-  const currentIndex = useMemo(() => {
-    if (!currentEp) return -1;
-    return episodes.findIndex((e) => e === currentEp);
-  }, [episodes, currentEp]);
-
+  // Index and navigation
+  const currentIndex = useMemo(
+    () => episodes.findIndex((e) => e === currentEp),
+    [episodes, currentEp]
+  );
   const hasNextEp = currentIndex > -1 && Boolean(episodes[currentIndex + 1]);
   const hasPrevEp = currentIndex > -1 && Boolean(episodes[currentIndex - 1]);
 
-  const changeEpisode = (action) => {
+  const changeEpisode = (direction) => {
     if (currentIndex < 0) return;
-    if (action === "next") {
+    if (direction === "next") {
       const next = episodes[currentIndex + 1];
       if (!next) return;
-      const nextEpNum = next?.id?.includes("ep=")
+      const nextNum = next?.id?.includes("ep=")
         ? next.id.split("ep=").pop()
         : String(next?.episodeNumber ?? "");
-      if (nextEpNum) updateParams(nextEpNum);
+      updateParams(nextNum);
     } else {
       const prev = episodes[currentIndex - 1];
       if (!prev) return;
-      const prevEpNum = prev?.id?.includes("ep=")
+      const prevNum = prev?.id?.includes("ep=")
         ? prev.id.split("ep=").pop()
         : String(prev?.episodeNumber ?? "");
-      if (prevEpNum) updateParams(prevEpNum);
+      updateParams(prevNum);
     }
   };
 
-  // IMPORTANT: pass Hindi streams down (array or empty)
-  const hindiStreams = Array.isArray(currentEp?.hindiStreams)
-    ? currentEp.hindiStreams
-    : [];
+  // Pass Hindi streams if present (support multiple possible keys)
+  const hindiStreams =
+    (Array.isArray(currentEp?.hindiStreams) && currentEp.hindiStreams) ||
+    (Array.isArray(currentEp?.hindi) && currentEp.hindi) ||
+    (Array.isArray(currentEp?.hindi_dub) && currentEp.hindi_dub) ||
+    [];
 
-  // episode id to feed Player (keep existing shape)
-  const episodeIdForPlayer =
-    currentEp?.id?.includes("?ep=")
-      ? currentEp.id
-      : `${id}?ep=${
-          epParam ??
-          (currentEp?.id?.includes("ep=")
-            ? currentEp.id.split("ep=").pop()
-            : String(currentEp?.episodeNumber ?? 1))
-        }`;
+  // Build episodeId to keep your original Player logic working
+  const currentEpNumber =
+    epParam ||
+    (currentEp?.id?.includes("ep=")
+      ? currentEp.id.split("ep=").pop()
+      : String(currentEp?.episodeNumber ?? 1));
+
+  const episodeIdForPlayer = `${id}?ep=${currentEpNumber}`;
 
   return (
     <div className="bg-backGround pt-14 max-w-screen-xl mx-auto py-2 md:px-2">
@@ -145,23 +160,19 @@ const WatchPage = () => {
             </h4>
           </Link>
           <span className="h-1 w-1 rounded-full bg-primary"></span>
-          <h4 className="gray">
-            episode {currentEp?.episodeNumber ?? epParam ?? ""}
-          </h4>
+          <h4 className="gray">episode {currentEp?.episodeNumber ?? currentEpNumber}</h4>
         </div>
 
         {/* Player */}
-        {currentEp && (
-          <Player
-            id={id}
-            episodeId={episodeIdForPlayer}
-            currentEp={currentEp}
-            changeEpisode={changeEpisode}
-            hasNextEp={hasNextEp}
-            hasPrevEp={hasPrevEp}
-            hindiDub={hindiStreams} // ← pass Hindi
-          />
-        )}
+        <Player
+          id={id}
+          episodeId={episodeIdForPlayer}
+          currentEp={currentEp}
+          changeEpisode={changeEpisode}
+          hasNextEp={hasNextEp}
+          hasPrevEp={hasPrevEp}
+          hindiDub={hindiStreams}
+        />
 
         {/* Layout toggle */}
         <div className="input w-full mt-2 flex items-end justify-end gap-3 text-end">
@@ -195,7 +206,7 @@ const WatchPage = () => {
         >
           {episodes.map((episode) => (
             <Episodes
-              key={episode.id}
+              key={episode.id ?? `${id}-${episode.episodeNumber}`}
               episode={episode}
               currentEp={currentEp}
               layout={layout}
