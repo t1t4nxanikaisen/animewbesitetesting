@@ -1,14 +1,18 @@
 /* eslint-disable react/prop-types */
-
 import { Link } from "react-router-dom";
+
 const Episodes = ({ episode, currentEp, layout }) => {
-  const isCurrent = episode.id === currentEp.id;
+  const isCurrent = episode.id === currentEp?.id;
+
+  // Encode episode id safely for router link
+  const safeEpisodeId = encodeURIComponent(episode.id);
+
   return (
     <>
       {layout === "row" ? (
         <li
           title={episode.title}
-          className={`w-full px-2 py-3 text-black
+          className={`w-full px-2 py-3 text-black cursor-pointer
             ${
               isCurrent
                 ? "bg-primary"
@@ -18,25 +22,22 @@ const Episodes = ({ episode, currentEp, layout }) => {
             }
           `}
         >
-          <Link
-            to={`/watch/${episode.id.replaceAll("::", "?")}`}
-            className="block w-full"
-          >
+          <Link to={`/watch/${safeEpisodeId}`} className="block w-full">
             <div className="flex gap-3 items-center">
-              <button
-                className={`text-sm ${
+              <span
+                className={`text-sm font-semibold ${
                   isCurrent ? "text-black" : "text-primary"
                 }`}
               >
                 {episode.episodeNumber}
-              </button>
-              <li
-                className={`flex-1 ${
+              </span>
+              <span
+                className={`flex-1 truncate text-sm ${
                   isCurrent ? "text-black" : "text-white"
-                } text-sm truncate`}
+                }`}
               >
                 {episode.title}
-              </li>
+              </span>
               {episode.isFiller && <span title="Filler">👻</span>}
             </div>
           </Link>
@@ -44,7 +45,7 @@ const Episodes = ({ episode, currentEp, layout }) => {
       ) : (
         <li
           title={episode.title}
-          className={` w-full rounded-sm py-1
+          className={`w-full rounded-sm py-1 cursor-pointer
              ${
                isCurrent
                  ? "bg-primary"
@@ -54,12 +55,9 @@ const Episodes = ({ episode, currentEp, layout }) => {
              }
           `}
         >
-          <Link
-            to={`/watch/${episode.id.replaceAll("::", "?")}`}
-            className="block w-full"
-          >
+          <Link to={`/watch/${safeEpisodeId}`} className="block w-full">
             <p
-              className={` text-sm md:text-base text-center ${
+              className={`text-sm md:text-base text-center font-semibold ${
                 isCurrent ? "text-black" : "text-white"
               }`}
             >
