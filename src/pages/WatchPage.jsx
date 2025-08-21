@@ -9,6 +9,10 @@ import { MdTableRows } from "react-icons/md";
 import { HiMiniViewColumns } from "react-icons/hi2";
 import { Helmet } from "react-helmet";
 
+// Small helper to build vidnest Hindi URL
+const buildHindiUrl = (anilistId, episodeNum) =>
+  `https://vidnest.fun/anime/${anilistId}/${episodeNum}/hindi`;
+
 const WatchPage = () => {
   const { id } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -16,8 +20,12 @@ const WatchPage = () => {
 
   const ep = searchParams.get("ep");
 
+  // Get episode list (your existing API hook)
   const { data, isError } = useApi(`/episodes/${id}`);
   const episodes = data?.data;
+
+  // Store AniList id for Hindi dubs (comes from your API, if it includes it)
+  const anilistId = data?.anilistId || data?.data?.anilistId || null;
 
   const updateParams = (newParam) => {
     setSearchParams((prev) => {
@@ -26,7 +34,6 @@ const WatchPage = () => {
       return newParams;
     });
   };
-  // Update document title
 
   // Auto-redirect to first episode if no `ep` param exists
   useEffect(() => {
@@ -61,8 +68,14 @@ const WatchPage = () => {
     }
   };
 
-  const hasNextEp = Boolean(episodes[currentEp.episodeNumber - 1 + 1]);
-  const hasPrevEp = Boolean(episodes[currentEp.episodeNumber - 1 - 1]);
+  const hasNextEp = Boolean(episodes[currentEp?.episodeNumber - 1 + 1]);
+  const hasPrevEp = Boolean(episodes[currentEp?.episodeNumber - 1 - 1]);
+
+  // Build Hindi dub link if AniList ID is available
+  const hindiDub =
+    anilistId && currentEp
+      ? buildHindiUrl(anilistId, currentEp.episodeNumber)
+      : null;
 
   return (
     /* WatchPage.js */
@@ -86,7 +99,7 @@ const WatchPage = () => {
             </h4>
           </Link>
           <span className="h-1 w-1 rounded-full bg-primary"></span>
-          <h4 className="gray">{`episode ${currentEp.episodeNumber}`}</h4>
+          <h4 className="gray">{`episode ${currentEp?.episodeNumber}`}</h4>
         </div>
         {ep && id && (
           <Player
@@ -96,6 +109,7 @@ const WatchPage = () => {
             changeEpisode={changeEpisode}
             hasNextEp={hasNextEp}
             hasPrevEp={hasPrevEp}
+            hindiDub={hindiDub} 
           />
         )}
         <div className="input w-full mt-2 flex items-end justify-end gap-3 text-end">
