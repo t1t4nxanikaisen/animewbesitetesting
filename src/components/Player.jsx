@@ -17,7 +17,6 @@ const Player = ({ episodeId, currentEp, changeEpisode, hasNextEp, hasPrevEp, hin
     setServersList({ sub: [], dub: [], hindi: [] });
     setSelectedServer(null);
 
-    // fetch servers for this episode (combined)
     let mounted = true;
     (async () => {
       try {
@@ -30,7 +29,7 @@ const Player = ({ episodeId, currentEp, changeEpisode, hasNextEp, hasPrevEp, hin
           hindi: servers.hindi ?? [],
         });
       } catch (err) {
-        // ignore, fallback to what we have
+        console.error("Failed to fetch servers:", err);
       }
     })();
 
@@ -44,7 +43,6 @@ const Player = ({ episodeId, currentEp, changeEpisode, hasNextEp, hasPrevEp, hin
       setCategory(newType);
       if (newType === "hindi") {
         setHindiIndex(0);
-        // set selected server to vidnest / first hindi server if present
         const h = serversList.hindi;
         if (h && h.length) setSelectedServer(h[0]);
       } else {
@@ -58,21 +56,20 @@ const Player = ({ episodeId, currentEp, changeEpisode, hasNextEp, hasPrevEp, hin
   };
 
   const getHindiUrl = () => {
-    if (!serversList.hindi || serversList.hindi.length === 0) {
-      // fallback to passed prop
-      const entry = hindiDub && hindiDub.length ? hindiDub[hindiIndex] ?? hindiDub[0] : null;
-      if (!entry) return null;
-      return typeof entry === "string" ? entry : entry.url;
+    if (serversList.hindi && serversList.hindi.length > 0) {
+      const entry = serversList.hindi[hindiIndex] ?? serversList.hindi[0];
+      return typeof entry === "string" ? entry : entry?.url;
     }
-    const entry = serversList.hindi[hindiIndex] ?? serversList.hindi[0];
-    return typeof entry === "string" ? entry : entry?.url;
+    if (hindiDub && hindiDub.length > 0) {
+      const entry = hindiDub[hindiIndex] ?? hindiDub[0];
+      return typeof entry === "string" ? entry : entry?.url;
+    }
+    return null;
   };
 
   const getSubDubUrl = () => {
-    // if user selected a specific server via selectedServer and server is known, call /stream to extract playable link
     if (selectedServer && category !== "hindi") {
-      // selectedServer likely contains { name, url, ... } — call backend to extract playable
-      return `/api/v1/stream?id=${encodeURIComponent(episodeId)}&type=${encodeURIComponent(category)}&server=${encodeURIComponent(selectedServer.name || selectedServer.server || selectedServer.name)}`;
+      return `/api/v1/stream?id=${encodeURIComponent(episodeId)}&type=${encodeURIComponent(category)}&server=${encodeURIComponent(selectedServer.name || selectedServer.server)}`;
     }
     const epnum = episodeId.includes("ep=") ? episodeId.split("ep=").pop() : currentEp?.episodeNumber;
     const base = server === "vidWish" ? "vidwish.live" : "megaplay.buzz";
@@ -80,19 +77,14 @@ const Player = ({ episodeId, currentEp, changeEpisode, hasNextEp, hasPrevEp, hin
   };
 
   const buildSrc = () => {
-    if (category === "hindi") {
-      const url = getHindiUrl();
-      return url;
-    }
-    // If selectedServer points to an external specific server with direct url, use it
+    if (category === "hindi") return getHindiUrl();
     if (selectedServer && selectedServer.url) return selectedServer.url;
-    // fallback to constructed url
     return getSubDubUrl();
   };
 
   const handleSelectServer = (srv) => {
     setSelectedServer(srv);
-    // if we selected a server object that includes a url field and category isn't hindi, set category accordingly
+    if (srv.url) setCategory(category); // keep category
   };
 
   const nextHindi = () => {
@@ -108,10 +100,18 @@ const Player = ({ episodeId, currentEp, changeEpisode, hasNextEp, hasPrevEp, hin
 
       <div className="category flex flex-wrap flex-col sm:flex-row items-center justify-center sm:justify-between px-2 md:px-20 gap-3 bg-lightbg py-2">
         <div className="servers flex gap-4">
-          <button onClick={() => changeServerLocal("vidWish")} className={`${server === "vidWish" ? "bg-primary text-black" : "bg-btnbg text-white"} px-2 py-1 rounded text-sm font-semibold`} disabled={category === "hindi"}>
+          <button
+            onClick={() => changeServerLocal("vidWish")}
+            className={`${server === "vidWish" ? "bg-primary text-black" : "bg-btnbg text-white"} px-2 py-1 rounded text-sm font-semibold`}
+            disabled={category === "hindi"}
+          >
             vidwish
           </button>
-          <button onClick={() => changeServerLocal("megaPlay")} className={`${server === "megaPlay" ? "bg-primary text-black" : "bg-btnbg text-white"} px-2 py-1 rounded text-sm font-semibold`} disabled={category === "hindi"}>
+          <button
+            onClick={() => changeServerLocal("megaPlay")}
+            className={`${server === "megaPlay" ? "bg-primary text-black" : "bg-btnbg text-white"} px-2 py-1 rounded text-sm font-semibold`}
+            disabled={category === "hindi"}
+          >
             megaplay
           </button>
         </div>
@@ -119,17 +119,24 @@ const Player = ({ episodeId, currentEp, changeEpisode, hasNextEp, hasPrevEp, hin
         <div className="flex gap-5">
           <div className="sound flex gap-3">
             {["sub", "dub"].map((t) => (
-              <button key={t} onClick={() => changeCategory(t)} className={`${category === t ? "bg-primary text-black" : "bg-btnbg text-white"} px-2 py-1 rounded text-sm font-semibold`}>
+              <button
+                key={t}
+                onClick={() => changeCategory(t)}
+                className={`${category === t ? "bg-primary text-black" : "bg-btnbg text-white"} px-2 py-1 rounded text-sm font-semibold`}
+              >
                 {t.toUpperCase()}
               </button>
             ))}
 
             {((hindiDub && hindiDub.length) || (serversList.hindi && serversList.hindi.length)) > 0 && (
               <>
-                <button onClick={() => changeCategory("hindi")} className={`${category === "hindi" ? "bg-primary text-black" : "bg-btnbg text-white"} px-2 py-1 rounded text-sm font-semibold`}>
+                <button
+                  onClick={() => changeCategory("hindi")}
+                  className={`${category === "hindi" ? "bg-primary text-black" : "bg-btnbg text-white"} px-2 py-1 rounded text-sm font-semibold`}
+                >
                   HINDI DUB
                 </button>
-                {category === "hindi" && ((serversList.hindi && serversList.hindi.length) || (hindiDub && hindiDub.length) > 1) && (
+                {category === "hindi" && ((serversList.hindi && serversList.hindi.length) > 1 || (hindiDub && hindiDub.length > 1)) && (
                   <button onClick={nextHindi} className="bg-btnbg text-white px-2 py-1 rounded text-sm font-semibold">
                     Next Hindi
                   </button>
@@ -158,7 +165,6 @@ const Player = ({ episodeId, currentEp, changeEpisode, hasNextEp, hasPrevEp, hin
         </div>
       </div>
 
-      {/* servers list UI: show per-server buttons so user can pick exact server */}
       <div className="py-2 px-2 bg-lightbg flex gap-2 flex-wrap">
         {serversList.sub?.map((s, i) => (
           <button key={`sub-${i}`} className="px-2 py-1 bg-btnbg text-white rounded text-sm" onClick={() => { setCategory("sub"); handleSelectServer(s); }}>
