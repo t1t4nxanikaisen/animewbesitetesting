@@ -10,72 +10,50 @@ import { HiMiniViewColumns } from "react-icons/hi2";
 import { Helmet } from "react-helmet";
 
 /**
- * Robustly fetch episodes from multiple sources and normalize into:
- * [
- *   {
- *     id: "slug?ep=1",
- *     episodeNumber: 1,
- *     title: "Episode 1",
- *     isFiller: false,
- *     subStreams: [...],
- *     dubStreams: [...],
- *     hindiStreams: [...]
- *   },
- *   ...
- * ]
- *
- * Try order:
- * 1) frontend's API base (VITE_API_BASE or relative /api/v1)
- * 2) Hindi API (https://hindiapi.onrender.com/api/v1)
- * 3) Consumet gogoanime info (fallback) - best-effort mapping
+ * Try a set of endpoints and normalize episode list into:
+ *  [
+ *    { id, episodeNumber, title, isFiller, subStreams, dubStreams, hindiStreams }
+ *  ]
  */
 async function fetchEpisodesAllSources(animeId) {
   const normalized = (arr) =>
     arr.map((ep) => {
-      // Try to determine episode number and id
       const epNum =
         ep?.episodeNumber ??
         ep?.episode ??
+        (typeof ep?.episodeNo === "number" ? ep.episodeNo : null) ??
         (typeof ep?.id === "string" && ep.id.includes("ep=") ? Number(ep.id.split("ep=").pop()) : null);
 
       return {
         id: ep.id ?? `${animeId}?ep=${epNum ?? ""}`,
         episodeNumber: epNum ?? null,
-        title: ep.title ?? ep.name ?? `Episode ${epNum ?? ""}`,
+        title: ep.title ?? ep.name ?? ep.nameWithEpisode ?? `Episode ${epNum ?? ""}`,
         isFiller: Boolean(ep.isFiller || ep.filler),
-        subStreams: ep.subStreams ?? ep.sources?.sub ?? ep.sub ?? [],
-        dubStreams: ep.dubStreams ?? ep.sources?.dub ?? ep.dub ?? [],
-        hindiStreams: ep.hindiStreams ?? ep.hindi ?? ep.hindi_dub ?? [],
+        subStreams: ep.subStreams ?? ep.sources?.sub ?? ep.sub ?? ep.streams?.sub ?? [],
+        dubStreams: ep.dubStreams ?? ep.sources?.dub ?? ep.dub ?? ep.streams?.dub ?? [],
+        hindiStreams: ep.hindiStreams ?? ep.hindi ?? ep.hindi_dub ?? ep.streams?.hindi ?? [],
       };
     });
 
   const tryEndpoints = [];
 
-  // 1) try VITE_API_BASE or relative
+  // 1) try local backend (relative). If you use VITE_API_BASE set it in env and it will be applied below.
   const viteBase = import.meta.env.VITE_API_BASE || "";
-  const localEndpoint = `${viteBase.replace(/\/$/, "")}/api/v1/episodes/${encodeURIComponent(animeId)}`;
-  tryEndpoints.push({ url: localEndpoint, type: "local" });
+  const local = `${viteBase.replace(/\/$/, "")}/api/v1/episodes/${encodeURIComponent(animeId)}`;
+  tryEndpoints.push({ url: local, kind: "local" });
 
-  // 2) try Hindi API
-  tryEndpoints.push({
-    url: `https://hindiapi.onrender.com/api/v1/episodes/${encodeURIComponent(animeId)}`,
-    type: "hindiapi",
-  });
+  // 2) Hindi API (explicit)
+  tryEndpoints.push({ url: `https://hindiapi.onrender.com/api/v1/episodes/${encodeURIComponent(animeId)}`, kind: "hindiapi" });
 
-  // 3) fallback: consumet gogoanime info
-  tryEndpoints.push({
-    url: `https://api.consumet.org/anime/gogoanime/info/${encodeURIComponent(animeId)}`,
-    type: "consumet",
-  });
+  // 3) Fallback: Consumet / gogoanime info
+  tryEndpoints.push({ url: `https://api.consumet.org/anime/gogoanime/info/${encodeURIComponent(animeId)}`, kind: "consumet" });
 
-  // Try each until we get usable episodes
-  for (const epEntry of tryEndpoints) {
+  for (const e of tryEndpoints) {
     try {
-      const res = await axios.get(epEntry.url, { timeout: 8000 });
+      const res = await axios.get(e.url, { timeout: 8000 });
       const payload = res?.data ?? res;
 
-      // Normalize different shapes that endpoints might return:
-      // - { episodes: [...] }, [ ... ], { data: [...] }, { data: { data: [...] } }
+      // normalize possible shapes
       let arr =
         Array.isArray(payload)
           ? payload
@@ -87,29 +65,20 @@ async function fetchEpisodesAllSources(animeId) {
           ? payload.data.data
           : null;
 
-      // For consumet shape: payload.episodes is object with .number and .title etc.
-      if (!arr && epEntry.type === "consumet" && payload?.episodes) {
-        arr = payload.episodes.map((e) => ({
-          episode: e.number ?? e.episode,
-          title: e.title,
-        }));
+      // consumet sometimes gives payload.episodes with objects { number, title }
+      if (!arr && e.kind === "consumet" && Array.isArray(payload?.episodes)) {
+        arr = payload.episodes.map((it) => ({ episode: it.number ?? it.episode, title: it.title }));
       }
 
-      if (!arr || !Array.isArray(arr) || arr.length === 0) {
-        continue; // try next endpoint
-      }
+      if (!arr || !Array.isArray(arr) || arr.length === 0) continue;
 
-      // If Hindi API returns episodes but in a different internal shape, normalize
-      const final = normalized(arr);
-      // Only accept if we have at least one with episodeNumber not null
-      if (final.length > 0) return final;
+      return normalized(arr);
     } catch (err) {
-      // ignore & try next
-      // console.warn("fetchEpisodesAllSources error for", epEntry.url, err.message);
+      // try next source
+      // console.warn("fetchEpisodesAllSources failed for", e.url, err.message);
     }
   }
 
-  // Nothing worked, return empty array
   return [];
 }
 
@@ -148,13 +117,11 @@ const WatchPage = () => {
     };
   }, [id]);
 
-  // auto-redirect to first episode if missing ep query
+  // auto-select first episode when we have list
   useEffect(() => {
     if (!epParam && Array.isArray(episodes) && episodes.length > 0) {
       const first = episodes[0];
-      const epNum = first?.id?.includes("ep=")
-        ? first.id.split("ep=").pop()
-        : String(first?.episodeNumber ?? 1);
+      const epNum = first?.id?.includes("ep=") ? first.id.split("ep=").pop() : String(first?.episodeNumber ?? 1);
       if (epNum) {
         setSearchParams((prev) => {
           const p = new URLSearchParams(prev);
@@ -189,7 +156,7 @@ const WatchPage = () => {
     );
   }
 
-  // compute currentEp from epParam or first
+  // find current episode
   const currentEp = useMemo(() => {
     if (!epParam) return episodes[0];
     const found = episodes.find((e) => {
@@ -203,11 +170,11 @@ const WatchPage = () => {
   const hasNextEp = currentIndex > -1 && Boolean(episodes[currentIndex + 1]);
   const hasPrevEp = currentIndex > -1 && Boolean(episodes[currentIndex - 1]);
 
-  const changeEpisode = (action) => {
+  const changeEpisode = (direction) => {
     if (currentIndex < 0) return;
-    const next = action === "next" ? episodes[currentIndex + 1] : episodes[currentIndex - 1];
-    if (!next) return;
-    const nextNum = next?.id?.includes("ep=") ? next.id.split("ep=").pop() : String(next?.episodeNumber ?? "");
+    const target = direction === "next" ? episodes[currentIndex + 1] : episodes[currentIndex - 1];
+    if (!target) return;
+    const nextNum = target?.id?.includes("ep=") ? target.id.split("ep=").pop() : String(target?.episodeNumber ?? "");
     setSearchParams((prev) => {
       const p = new URLSearchParams(prev);
       p.set("ep", nextNum);
@@ -215,10 +182,7 @@ const WatchPage = () => {
     });
   };
 
-  const currentEpNumber = currentEp?.id?.includes("ep=")
-    ? currentEp.id.split("ep=").pop()
-    : String(currentEp?.episodeNumber ?? 1);
-
+  const currentEpNumber = currentEp?.id?.includes("ep=") ? currentEp.id.split("ep=").pop() : String(currentEp?.episodeNumber ?? 1);
   const episodeIdForPlayer = `${id}?ep=${currentEpNumber}`;
 
   return (
@@ -260,14 +224,8 @@ const WatchPage = () => {
           </div>
         </div>
 
-        <ul
-          className={`episodes max-h-[50vh] py-4 px-2 overflow-scroll bg-lightbg grid gap-1 md:gap-2 ${
-            layout === "row" ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3" : "grid-cols-5 md:grid-cols-10"
-          }`}
-        >
-          {episodes.map((episode) => (
-            <Episodes key={episode.id ?? `${id}-${episode.episodeNumber}`} episode={episode} currentEp={currentEp} layout={layout} />
-          ))}
+        <ul className={`episodes max-h-[50vh] py-4 px-2 overflow-scroll bg-lightbg grid gap-1 md:gap-2 ${layout === "row" ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3" : "grid-cols-5 md:grid-cols-10"}`}>
+          {episodes.map((episode) => <Episodes key={episode.id ?? `${id}-${episode.episodeNumber}`} episode={episode} currentEp={currentEp} layout={layout} />)}
         </ul>
       </div>
     </div>
